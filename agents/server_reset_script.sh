@@ -1,6 +1,5 @@
 #!/run/current-system/sw/bin/bash
 
-
 # root verification (if not root the script ask the root's password)
 if [ "$EUID" -ne 0 ]; then
   echo "Ce script doit être exécuté en tant que root. Demande de privilèges root..."
