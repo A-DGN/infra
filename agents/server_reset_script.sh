@@ -1,137 +1,196 @@
 #!/run/current-system/sw/bin/bash
 
-# root verification (if not root the script ask the root's password)
+# Root access verification
 if [ "$EUID" -ne 0 ]; then
-  echo "Ce script doit être exécuté en tant que root. Demande de privilèges root..."
+  echo "This script must be run as root. Requesting root privileges..."
   exec sudo "$0" "$@"
 fi
 
-# fonction to get the nixos's latest stable iso
-get_latest_stable_iso_url() {
-  curl -s https://nixos.org/download.html | grep -Eo 'https://channels.nixos.org/nixos-[0-9]+\.[0-9]+/latest-nixos-minimal-x86_64-linux.iso' | head -n 1
+# Function to get the latest stable NixOS minimal version
+get_latest_stable_iso_info() {
+  local iso_url=$(curl -s https://nixos.org/download.html | grep -Eo 'https://channels.nixos.org/nixos-[0-9]+\.[0-9]+/latest-nixos-minimal-x86_64-linux.iso' | head -n 1)
+  local version=$(echo "$iso_url" | grep -Eo 'nixos-[0-9]+\.[0-9]+' | grep -Eo '[0-9]+\.[0-9]+')
+  echo "$version $iso_url"
 }
 
-# fonction to get the current nixos's iso version
+# Function to get the current NixOS version
 get_current_nixos_version() {
   nixos-version | grep -Eo '^[0-9]+\.[0-9]+'
 }
 
-# defining variables
+# Defining variables
 MOUNT_POINT="/mnt"
 NIXOS_ISO_PATH="/tmp/nixos-minimal.iso"
-CURRENT_VERSION=$(get_current_nixos_version | tr -d '\n') # current nixos version
+CURRENT_VERSION=$(get_current_nixos_version | tr -d '\n')
 CONFIGURATION_NIX_PATH="/tmp/configuration.nix"
+latest_iso_info=$(get_latest_stable_iso_info)
+LATEST_VERSION=$(echo $latest_iso_info | cut -d ' ' -f 1)
+LATEST_ISO_URL=$(echo $latest_iso_info | cut -d ' ' -f 2)
 
-# Clear the terminal screen
-clear
-
-# Function to display ASCII header
+# Display ASCII header
 display_header() {
+  clear
   cat << "EOF"
-
 
    _____                              ____                 __     _____           _       __ 
   / ___/___  ______   _____  _____   / __ \___  ________  / /_   / ___/__________(_)___  / /_
   \__ \/ _ \/ ___/ | / / _ \/ ___/  / /_/ / _ \/ ___/ _ \/ __/   \__ \/ ___/ ___/ / __ \/ __/
  ___/ /  __/ /   | |/ /  __/ /     / _, _/  __(__  )  __/ /_    ___/ / /__/ /  / / /_/ / /_  
 /____/\___/_/    |___/\___/_/     /_/ |_|\___/____/\___/\__/   /____/\___/_/  /_/ .___/\__/  
-                                                                               /_/               
-
+                                                                               /_/ 
 
 EOF
 }
 
-# Display the ASCII header
 display_header
+echo "Your current version of NixOS is: $CURRENT_VERSION || The latest version of NixOS is: $LATEST_VERSION"
 
-echo "Your current NixOS's version : $CURRENT_VERSION"
+# -------------------- PART 1 OPERATING SYSTEM --------------------
+# Ask if the user wants to update the OS or not
+if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+    read -p "Keep the current version of NixOS ($CURRENT_VERSION)? Or get the latest stable version ($LATEST_VERSION)? (y/n): " USER_CHOICE
+    if [ "$USER_CHOICE" == "y" ]; then
+        echo "You have chosen to keep the current version of NixOS ($CURRENT_VERSION)."
+    elif [ "$USER_CHOICE" == "n" ]; then
+        NIXOS_ISO_URL=$LATEST_ISO_URL
+    else
+        echo "Invalid choice. Please choose 'y' or 'n'."
+        exit 1
+    fi
+else
+    echo "The current version of NixOS ($CURRENT_VERSION) is already the latest stable version."
+    USER_CHOICE="y"
+fi
 
-# Demander à l'utilisateur quelle version utiliser
-read -p "Do we keep NixOS current version ($CURRENT_VERSION) ? Or get the last stable version ? (y/n) : " USER_CHOICE
+# Check if the ISO URL has been determined
+if [ "$USER_CHOICE" == "n" ] && [ -z "$NIXOS_ISO_URL" ]; then
+    echo "Unable to determine the NixOS ISO URL."
+    exit 1
+fi
 
 if [ "$USER_CHOICE" == "n" ]; then
-  NIXOS_ISO_URL="https://channels.nixos.org/nixos-$CURRENT_VERSION/latest-nixos-minimal-x86_64-linux.iso"
-elif [ "$USER_CHOICE" == "y" ]; then
-  NIXOS_ISO_URL=$(get_latest_stable_iso_url)
-else
-  echo "Choix invalide. Veuillez choisir 'y' ou 'n'."
-  exit 1
+    echo "Downloading NixOS ISO from: $NIXOS_ISO_URL"
+    curl -L $NIXOS_ISO_URL -o $NIXOS_ISO_PATH || { echo "Failed to download the ISO."; exit 1; }
 fi
 
-if [ -z "$NIXOS_ISO_URL" ]; then
-  echo "Impossible de déterminer l'URL de l'ISO de NixOS."
-  exit 1
+# -------------------- PART 2 GET THE CURRENT CONFIGURATION FILE --------------------
+# Ensure the configuration.nix file exists or prompt the user for the path
+if [ ! -f $CONFIGURATION_NIX_PATH ]; then
+  echo "The file $CONFIGURATION_NIX_PATH does not exist."
+  read -p "Please provide the path to the configuration.nix file: " CONFIG_PATH_INPUT
+  if [ -f $CONFIG_PATH_INPUT ]; then
+    CONFIGURATION_NIX_PATH=$CONFIG_PATH_INPUT
+  else
+    echo "The file $CONFIG_PATH_INPUT does not exist. Aborting."
+    exit 1
+  fi
 fi
+echo "The NixOS configuration file has been found at $CONFIGURATION_NIX_PATH."
 
-echo "Téléchargement de l'ISO de NixOS depuis: $NIXOS_ISO_URL"
-
-# Copier le fichier configuration.nix existant
-if [ -f /etc/nixos/configuration.nix ]; then
-  cp /etc/nixos/configuration.nix $CONFIGURATION_NIX_PATH
-else
-  echo "Le fichier /etc/nixos/configuration.nix n'existe pas. Abandon."
-  exit 1
-fi
-
-# Télécharger l'ISO de NixOS
-curl -L $NIXOS_ISO_URL -o $NIXOS_ISO_PATH
-
-# Lister les disques disponibles et demander à l'utilisateur de choisir
-echo "Liste des disques disponibles :"
+# -------------------- PART 3 DISKS MANAGEMENT --------------------
+# List available disks and ask the user to choose one
+echo ""
+echo " ----------------------------- "
+echo ""
+echo "List of available disks:"
 lsblk -d -n -o NAME,SIZE
-echo "Veuillez choisir le disque où installer NixOS (par exemple, sda, nvme0n1) :"
-read -p "Disque : " DISK_CHOICE
+echo ""
+echo " ----------------------------- "
+echo ""
+read -p "Please choose the disk to install NixOS on (e.g., sda, nvme0n1): " DISK_CHOICE
 DEVICE="/dev/$DISK_CHOICE"
 
-# Fonction pour extraire les partitions et les systèmes de fichiers du fichier configuration.nix
-extract_partitions() {
-  sed -n '/fileSystems = {/,/};/p' /etc/nixos/configuration.nix > /tmp/filesystems.nix
-  sed -i '1d;$d' /tmp/filesystems.nix  # Supprimer les lignes de début et de fin
+# Get the size of the selected disk in MiB
+DISK_SIZE=$(lsblk -b -d -n -o SIZE $DEVICE)
+DISK_SIZE_MIB=$((DISK_SIZE / 1024 / 1024))
 
-  PARTITIONS=()
-  while IFS= read -r line; do
-    if [[ $line == *"/dev/"* ]]; then
-      PARTITION=$(echo $line | grep -Eo '/dev/[a-zA-Z0-9]+')
-      FS_TYPE=$(echo $line | grep -Eo 'type = "[a-z0-9]+"' | cut -d'"' -f2)
-      PARTITIONS+=("$PARTITION:$FS_TYPE")
-    fi
-  done < /tmp/filesystems.nix
+# Function to convert size to MiB
+size_to_mib() {
+  local SIZE=$1
+  echo "$SIZE" | awk '/G$/{print int($1 * 1024)} /M$/{print int($1)} /K$/{print int($1 / 1024)} /^[0-9]+$/{print int($1 / 1024 / 1024)}'
 }
 
-# Extraire les partitions et les systèmes de fichiers
-extract_partitions
+# Default partition sizes
+DEFAULT_ROOT_SIZE="50G"
+DEFAULT_VAR_SIZE="100G"
+DEFAULT_DATA_SIZE="300G"
+DEFAULT_SWAP_SIZE="26.9G"
 
-# Créer les partitions (simplifié pour l'exemple)
-parted $DEVICE -- mklabel gpt
-for PARTITION in "${PARTITIONS[@]}"; do
-  PART=${PARTITION%%:*}
-  FS_TYPE=${PARTITION##*:}
-  SIZE="512MiB"  # Placeholder size, should be adjusted based on actual configuration
-  if [ "$FS_TYPE" == "fat32" ]; then
-    parted $DEVICE -- mkpart primary fat32 0% $SIZE
-    mkfs.fat -F 32 $PART
-  elif [ "$FS_TYPE" == "swap" ]; then
-    parted $DEVICE -- mkpart primary linux-swap 0% $SIZE
-    mkswap $PART
+# Ask for partition sizes with defaults
+while true; do
+  echo ""
+  echo "You will now be asked to specify the sizes for each partition."
+  read -p "Enter the size for the root partition (default: $DEFAULT_ROOT_SIZE): " ROOT_SIZE
+  ROOT_SIZE=${ROOT_SIZE:-$DEFAULT_ROOT_SIZE}
+  read -p "Enter the size for the var partition (default: $DEFAULT_VAR_SIZE): " VAR_SIZE
+  VAR_SIZE=${VAR_SIZE:-$DEFAULT_VAR_SIZE}
+  read -p "Enter the size for the data partition (default: $DEFAULT_DATA_SIZE): " DATA_SIZE
+  DATA_SIZE=${DATA_SIZE:-$DEFAULT_DATA_SIZE}
+  read -p "Enter the size for the swap partition (default: $DEFAULT_SWAP_SIZE): " SWAP_SIZE
+  SWAP_SIZE=${SWAP_SIZE:-$DEFAULT_SWAP_SIZE}
+
+  # Convert partition sizes to MiB
+  ROOT_SIZE_MIB=$(size_to_mib $ROOT_SIZE)
+  VAR_SIZE_MIB=$(size_to_mib $VAR_SIZE)
+  DATA_SIZE_MIB=$(size_to_mib $DATA_SIZE)
+  SWAP_SIZE_MIB=$(size_to_mib $SWAP_SIZE)
+
+  # Calculate total requested size in MiB
+  TOTAL_REQUESTED_SIZE=$((ROOT_SIZE_MIB + VAR_SIZE_MIB + DATA_SIZE_MIB + SWAP_SIZE_MIB))
+
+  if [ $TOTAL_REQUESTED_SIZE -le $DISK_SIZE_MIB ]; then
+    echo ""
+    echo "You have specified the following partition sizes:"
+    echo "Root: $ROOT_SIZE"
+    echo "Var: $VAR_SIZE"
+    echo "Data: $DATA_SIZE"
+    echo "Swap: $SWAP_SIZE"
+    read -p "Are these sizes correct? (y/n): " SIZE_CONFIRM
+    if [ "$SIZE_CONFIRM" == "y" ]; then
+      break
+    fi
   else
-    parted $DEVICE -- mkpart primary $FS_TYPE 0% $SIZE
-    mkfs.$FS_TYPE $PART
+    echo "The total size of the partitions exceeds the size of the disk. Please enter the sizes again."
   fi
 done
 
-# Monter les partitions
-mount ${PARTITIONS[0]%%:*} $MOUNT_POINT
+# Proceed with partitioning
+echo "Proceeding with disk partitioning..."
+parted $DEVICE -- mklabel gpt
+parted $DEVICE -- mkpart primary 512MiB $((512 + ROOT_SIZE_MIB))MiB
+parted $DEVICE -- mkpart primary $((512 + ROOT_SIZE_MIB))MiB $((512 + ROOT_SIZE_MIB + VAR_SIZE_MIB))MiB
+parted $DEVICE -- mkpart primary $((512 + ROOT_SIZE_MIB + VAR_SIZE_MIB))MiB $((512 + ROOT_SIZE_MIB + VAR_SIZE_MIB + DATA_SIZE_MIB))MiB
+parted $DEVICE -- mkpart primary $((512 + ROOT_SIZE_MIB + VAR_SIZE_MIB + DATA_SIZE_MIB))MiB $((512 + ROOT_SIZE_MIB + VAR_SIZE_MIB + DATA_SIZE_MIB + SWAP_SIZE_MIB))MiB
+parted $DEVICE -- mkpart ESP fat32 1MiB 512MiB
+parted $DEVICE -- set 5 boot on
+
+# Format the partitions
+mkfs.ext4 ${DEVICE}1
+mkfs.ext4 ${DEVICE}2
+mkfs.ext4 ${DEVICE}3
+mkfs.ext4 ${DEVICE}4
+mkswap ${DEVICE}5
+mkfs.vfat -F 32 ${DEVICE}6
+
+# Mount the partitions
+mount ${DEVICE}1 $MOUNT_POINT
 mkdir -p $MOUNT_POINT/boot
-mount ${PARTITIONS[1]%%:*} $MOUNT_POINT/boot
+mount ${DEVICE}6 $MOUNT_POINT/boot
+mkdir -p $MOUNT_POINT/var
+mount ${DEVICE}2 $MOUNT_POINT/var
+mkdir -p $MOUNT_POINT/data
+mount ${DEVICE}3 $MOUNT_POINT/data
+swapon ${DEVICE}5
 
-# Activer le swap
-swapon ${PARTITIONS[2]%%:*}
+# Copy the configuration file to the new system
+mkdir -p $MOUNT_POINT/etc/nixos
+cp $CONFIGURATION_NIX_PATH $MOUNT_POINT/etc/nixos/configuration.nix
 
-# Installation de NixOS
-nixos-generate-config --root $MOUNT_POINT
-cp $CONFIGURATION_NIX_PATH $MOUNT_POINT/etc/nixos/
+# Install NixOS with the boot loader installation
+nixos-install --root $MOUNT_POINT --no-root-passwd
 
-nixos-install --root $MOUNT_POINT
+# Ensure EFI boot loader is correctly installed
+bootctl --path=$MOUNT_POINT/boot install
 
-# Redémarrer le système
-reboot
+# Inform the user that the installation is complete
+echo "NixOS installation is complete. You can reboot into your new system."
