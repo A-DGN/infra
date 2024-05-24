@@ -67,30 +67,30 @@ echo "partitioning ${DEV}..."
 (
   echo g # new gpt partition table
 
-  echo n # new partition
+  echo n # new partition (/EFI System Partition)
   echo 1 # partition 1
   echo   # default start sector
-  echo +512M # size is 512M (EFI System Partition)
+  echo +512M # size is 512M
 
-  echo n # new partition
+  echo n # new partition (/swap partition)
   echo 2 # partition 2
   echo   # default start sector
-  echo +4G # size is 4G (swap partition)
+  echo +4G # size is 4G
 
-  echo n # new partition
+  echo n # new partition (/root partition for OS)
   echo 3 # partition 3
   echo   # default start sector
-  echo +20G # size is 20G (root partition for OS)
+  echo +50G # size is 50G
 
-  echo n # new partition
+  echo n # new partition (/var partition  for db, var and data)
   echo 4 # partition 4
   echo   # default start sector
-  echo +50G # size is 50G (partition for databases and other variable data)
+  echo +500G # size is 500G
 
-  echo n # new partition
+  echo n # new partition (/root partition for apps and Docker containers)
   echo 5 # partition 5
   echo   # default start sector
-  echo   # use the remaining space (partition for apps and Docker containers)
+  echo   # use the remaining space
 
   echo t # set type
   echo 1 # select partition 1
