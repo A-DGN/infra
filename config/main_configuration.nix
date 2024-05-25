@@ -10,9 +10,13 @@
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
+  # SSH configuration
   services.openssh.enable = true;
   networking.firewall.allowedTCPPorts = [ 22 ];
   services.openssh.settings.PermitRootLogin = "yes";
+
+  # Docker configuration
+  #virtualisation.docker.enable = true;
 
   system.stateVersion = "23.11";
 }
