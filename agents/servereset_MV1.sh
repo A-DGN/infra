@@ -187,6 +187,10 @@ sudo mount /dev/disk/by-label/var /mnt/var
 sudo mkdir -p /mnt/apps
 sudo mount /dev/disk/by-label/apps /mnt/apps
 
+# Create additional directories for Docker volumes
+sudo mkdir -p /mnt/var/docker-volumes
+sudo mkdir -p /mnt/apps/docker
+
 # -------------------- PART 9 --------------------
 # Step 9: Generating NixOS configuration
 echo "generating NixOS configuration..."

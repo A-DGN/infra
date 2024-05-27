@@ -16,7 +16,14 @@
   services.openssh.settings.PermitRootLogin = "yes";
 
   # Docker configuration
-  #virtualisation.docker.enable = true;
+  virtualisation.docker.enable = true;
+  virtualisation.docker.extraOptions = "--data-root /apps/docker"; # Définir l'emplacement des données Docker
+  system.activationScripts.dockerSetup = ''
+    mkdir -p /apps/docker
+    chown root:root /apps/docker
+    mkdir -p /var/docker-volumes
+    chown root:root /var/docker-volumes
+  '';
 
   system.stateVersion = "23.11";
 }
