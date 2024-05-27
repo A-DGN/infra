@@ -1,11 +1,5 @@
 #!/run/current-system/sw/bin/bash
 
-# Root access verification
-if [ "$EUID" -ne 0 ]; then
-  echo "This script must be run as root. Requesting root privileges..."
-  exec sudo "$0" "$@"
-fi
-
 # Display ASCII header
 display_header() {
   clear
@@ -24,11 +18,19 @@ EOF
 display_header
 
 # -------------------- PART 1 --------------------
-# Step 1: List attached storage devices and select the first one
+# Step 1: Introduction and prompt for user input
 echo "--------------------------------------------------------------------------------"
 echo "Your attached storage devices will now be listed."
+read -p "Press 'enter' to exit the list. Press enter to continue." NULL
 
-# List devices and select the first one
+#sudo fdisk -l | less
+
+# -------------------- PART 2 --------------------
+# Step 2: Device selection
+echo "--------------------------------------------------------------------------------"
+echo "Detected the following devices:"
+echo
+
 i=0
 for device in $(sudo fdisk -l | grep "^Disk /dev" | awk '{print $2}' | sed 's/://'); do
     echo "[$i] $device"
@@ -36,7 +38,9 @@ for device in $(sudo fdisk -l | grep "^Disk /dev" | awk '{print $2}' | sed 's/:/
     DEVICES[$i]=$device
 done
 
-DEVICE=0
+echo
+read -p "Which device do you wish to install on? " DEVICE
+
 DEV=${DEVICES[$(($DEVICE+1))]}
 
 # Unmount all partitions and deactivate swap
@@ -46,38 +50,41 @@ for part in $(lsblk -ln -o NAME ${DEV} | grep -v ${DEV}); do
     sudo swapoff /dev/${part} 2>/dev/null || true
 done
 
-# -------------------- PART 2 --------------------
-# Step 2: Partitioning the selected device
+# -------------------- PART 3 --------------------
+# Step 3: Swap space input (Fixed at 4 GiB)
 SWAP=4
+
+# -------------------- PART 4 --------------------
+# Step 4: Partitioning the selected device
 
 echo "partitioning ${DEV}..."
 (
   echo g # new gpt partition table
 
-  echo n # new partition
+  echo n # new partition (/EFI System Partition)
   echo 1 # partition 1
   echo   # default start sector
-  echo +512M # size is 512M (EFI System Partition)
+  echo +512M # size is 512M
 
-  echo n # new partition
+  echo n # new partition (/swap partition)
   echo 2 # partition 2
   echo   # default start sector
-  echo +4G # size is 4G (swap partition)
+  echo +4G # size is 4G
 
-  echo n # new partition
+  echo n # new partition (/root partition for OS)
   echo 3 # partition 3
   echo   # default start sector
-  echo +20G # size is 20G (root partition for OS)
+  echo +50G # size is 50G
 
-  echo n # new partition
+  echo n # new partition (/var partition  for db, var and data)
   echo 4 # partition 4
   echo   # default start sector
-  echo +50G # size is 50G (partition for databases and other variable data)
+  echo +500G # size is 500G
 
-  echo n # new partition
+  echo n # new partition (/root partition for apps and Docker containers)
   echo 5 # partition 5
   echo   # default start sector
-  echo   # use the remaining space (partition for apps and Docker containers)
+  echo   # use the remaining space
 
   echo t # set type
   echo 1 # select partition 1
@@ -104,8 +111,8 @@ echo "partitioning ${DEV}..."
   echo w # write the partition table
 ) | sudo fdisk ${DEV}
 
-# -------------------- PART 3 --------------------
-# Step 3: Partition alignment check
+# -------------------- PART 5 --------------------
+# Step 5: Partition alignment check
 echo "--------------------------------------------------------------------------------"
 echo "checking partition alignment..."
 
@@ -122,8 +129,8 @@ align_check 3
 align_check 4
 align_check 5
 
-# -------------------- PART 4 --------------------
-# Step 4: Getting created partition names
+# -------------------- PART 6 --------------------
+# Step 6: Getting created partition names
 echo "--------------------------------------------------------------------------------"
 echo "getting created partition names..."
 
@@ -140,12 +147,11 @@ P3=${PARTITIONS[4]}
 P4=${PARTITIONS[5]}
 P5=${PARTITIONS[6]}
 
-# -------------------- PART 5 --------------------
-# Step 5: Creating filesystems
+# -------------------- PART 7 --------------------
+# Step 7: Creating filesystems
 echo "--------------------------------------------------------------------------------"
 
 echo "making filesystem on ${P1}..."
-sudo umount ${P1} 2>/dev/null || true
 sudo mkfs.fat -F 32 -n boot ${P1}            # (for UEFI systems only)
 
 echo "enabling swap..."
@@ -153,19 +159,16 @@ sudo mkswap -L swap ${P2}
 sudo swapon ${P2}
 
 echo "making filesystem on ${P3}..."
-sudo umount ${P3} 2>/dev/null || true
 sudo mkfs.ext4 -L nixos ${P3}                # (root partition for OS)
 
 echo "making filesystem on ${P4}..."
-sudo umount ${P4} 2>/dev/null || true
 sudo mkfs.ext4 -L var ${P4}                  # (partition for databases and other variable data)
 
 echo "making filesystem on ${P5}..."
-sudo umount ${P5} 2>/dev/null || true
 sudo mkfs.ext4 -L apps ${P5}                 # (partition for apps and Docker containers)
 
-# -------------------- PART 6 --------------------
-# Step 6: Mounting filesystems
+# -------------------- PART 8 --------------------
+# Step 8: Mounting filesystems
 echo "mounting filesystems..."
 
 sudo mount /dev/disk/by-label/nixos /mnt
@@ -178,25 +181,29 @@ sudo mount /dev/disk/by-label/var /mnt/var
 sudo mkdir -p /mnt/apps
 sudo mount /dev/disk/by-label/apps /mnt/apps
 
-# Create additional directories for Docker volumes
-sudo mkdir -p /mnt/var/docker-volumes
+# Create additional directories for Docker
 sudo mkdir -p /mnt/apps/docker
 
-# -------------------- PART 7 --------------------
-# Step 7: Generating NixOS configuration
+# -------------------- PART 9 --------------------
+# Step 9: Generating NixOS configuration
 echo "generating NixOS configuration..."
 
 sudo nixos-generate-config --root /mnt
 
-# -------------------- PART 8 --------------------
-# Step 8: Installing NixOS
+# -------------------- PART 10 --------------------
+# Step 10: Editing the configuration
+read -p "Press enter and the Nix configuration will be opened in nano." NULL
+
+sudo nano /mnt/etc/nixos/configuration.nix
+
+# -------------------- PART 11 --------------------
+# Step 11: Installing NixOS
 echo "installing NixOS..."
 
-sudo nixos-install --no-root-passwd
+sudo nixos-install
 
-# -------------------- PART 9 --------------------
-# Step 9: Final steps
-echo "Remove installation media and the system will reboot in 10 seconds."
-sleep 10
+# -------------------- PART 12 --------------------
+# Step 12: Final steps
+read -p "Remove installation media and press enter to reboot." NULL
 
 reboot

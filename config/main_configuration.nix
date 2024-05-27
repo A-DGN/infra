@@ -6,6 +6,11 @@
       ./hardware-configuration.nix
     ];
 
+  # Packages manager
+  environment.systemPackages = with pkgs; [
+    docker-compose 
+  ];
+
   # Use the systemd-boot EFI boot loader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
