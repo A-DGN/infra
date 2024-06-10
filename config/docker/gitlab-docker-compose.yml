@@ -1,0 +1,30 @@
+version: '3.6'
+
+services:
+  gitlab:
+    image: 'gitlab/gitlab-ce:latest'
+    restart: always
+    hostname: 'gitlab'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://gitlab.cabesttan.co'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2222
+        # Ajoutez des configurations SSL ici si vous utilisez HTTPS
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gitlab.rule=Host(`gitlab.cabesttan.co`)"
+      - "traefik.http.routers.gitlab.entrypoints=web"
+      - "traefik.http.routers.gitlab.entrypoints=websecure"
+      - "traefik.http.routers.gitlab.tls.certresolver=myresolver"
+    ports:
+      - '2222:22'
+    volumes:
+      - '/apps/docker/gitlab/config:/etc/gitlab'
+      - '/apps/docker/gitlab/logs:/var/log/gitlab'
+      - '/apps/docker/gitlab/data:/var/opt/gitlab'
+    networks:
+      - traefik_proxy
+
+networks:
+  traefik_proxy:
+    external: true

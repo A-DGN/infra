@@ -1,0 +1,28 @@
+version: '3.6'
+
+services:
+  traefik:
+    image: traefik:v2.4
+    restart: always
+    hostname: 'traefik'
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=corporate@cabesttan.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/apps/docker/traefik/letsencrypt/acme.json"
+    ports:
+      - "80:80"      #http
+      - "443:443"    #https
+      - "8080:8080"  #traefik dashboard
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/apps/docker/traefik/letsencrypt:/letsencrypt"
+    networks:
+      - traefik_proxy
+
+networks:
+  traefik_proxy:
+    external: true
